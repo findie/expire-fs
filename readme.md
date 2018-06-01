@@ -2,6 +2,11 @@
 
 _Easily give your files a max lifetime._
 
+## Install
+```
+npm i expire-fs
+```
+
 ## Options
 - `{String}` folder - folder to watch
 - `{RegExp|function(String,Stats):Boolean=}` filter=`/.*/` - files to filter
