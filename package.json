@@ -1,10 +1,14 @@
 {
   "name": "expire-fs",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "",
   "main": "index.js",
   "scripts": {
   },
   "author": "stefan@findie.me",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:findie/expire-fs.git"
+  }
 }

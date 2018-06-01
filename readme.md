@@ -25,7 +25,7 @@ Method that will run the clean routine on demand
 ### `ExpireFS.start(void):Boolean`
 Method to start the timer. If already started, request is ignored.
 
-###`ExpireFS.stop(void):Boolean`
+### `ExpireFS.stop(void):Boolean`
 Method to stop the timer. If already stopped, request is ignored.
 
 ## Events
