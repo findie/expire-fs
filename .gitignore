@@ -49,3 +49,16 @@ crashlytics.properties
 crashlytics-build.properties
 fabric.properties
 .idea/httpRequests
+.idea/codeStyles/
+.idea/dbnavigator.xml
+.idea/encodings.xml
+.idea/expire-fs.iml
+.idea/inspectionProfiles/
+.idea/jsLibraryMappings.xml
+.idea/markdown-navigator.xml
+.idea/markdown-navigator/
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
+test.js
+test/
