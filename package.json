@@ -1,0 +1,10 @@
+{
+  "name": "expire-fs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+  },
+  "author": "stefan@findie.me",
+  "license": "MIT"
+}
