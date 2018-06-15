@@ -5,6 +5,7 @@ const EventEmitter = require('events');
 const readdirAsync = dirname => new Promise((res, rej) => fs.readdir(dirname, (e, l) => e ? rej(e) : res(l)));
 const unlinkAsync = filename => new Promise((res, rej) => fs.unlink(filename, e => e ? rej(e) : res()));
 const statsAsync = filename => new Promise((res, rej) => fs.stat(filename, (e, s) => e ? rej(e) : res(s)));
+const rmdirAsync = filename => new Promise((res, rej) => fs.rmdir(filename, e => e ? rej(e) : res()));
 
 const validTimeTypes = ['atime', 'mtime', 'ctime', 'birthtime'];
 
@@ -20,32 +21,45 @@ class ExpireFS extends EventEmitter {
    * @param {Boolean=} [options.recursive=true]
    * @param {Boolean=} [options.autoStart=true]
    * @param {Boolean=} [options.unsafe=false]
+   * @param {Boolean=} [options.removeEmptyDirs=false]
    */
-  constructor(options) {
+  constructor({
+                folder,
+                unsafe = false,
+                timeType = 'birthtime',
+                filter = /.*/,
+                expire = Infinity,
+                interval = 5 * 60 * 1000,
+                recursive = true,
+                autoStart = true,
+                removeEmptyDirs = true
+              }) {
     super();
 
-    this.folder = options.folder;
-    if (!this.folder) {
+    if (!folder) {
       throw new Error('folder should be specified');
     }
-    if (!options.unsafe && options.folder.split(path.sep).length <= 2) {
+    this.folder = path.resolve(folder);
+    if (!unsafe && this.folder.split(path.sep).length <= 2) {
       throw new Error(
-        'Cowardly refusing to watch folder ' + options.folder + ' as it is a root folder. ' +
+        'Cowardly refusing to watch folder ' + folder + ' as it is a root folder. ' +
         'To override this behaviour, please set "unsafe" to be true'
       );
     }
 
-    this.timeType = options.timeType === undefined ? 'birthtime' : options.timeType;
+    this.timeType = timeType;
     if (!~validTimeTypes.indexOf(this.timeType)) {
       throw new Error('timeType should be one of ' + validTimeTypes.join(', '));
     }
 
-    this.filter = options.filter === undefined ? /.*/ : options.filter;
-    this.expire = options.expire === undefined ? Infinity : options.expire;
+    this.filter = filter;
+    this.expire = expire;
 
-    this.interval = options.interval === undefined ? 5 * 60 * 1000 : options.interval;
-    this.recursive = options.recursive === undefined ? true : options.recursive;
-    this.autoStart = options.autoStart === undefined ? true : options.autoStart;
+    this.interval = interval;
+    this.recursive = recursive;
+    this.autoStart = autoStart;
+
+    this.removeEmptyDirs = removeEmptyDirs;
 
     this._interval = null;
 
@@ -97,38 +111,39 @@ class ExpireFS extends EventEmitter {
    * @return {PromiseLike<ExpireFSFolderChain[]> | Promise<ExpireFSFolderChain[]>}
    * @private
    */
-  _clean(dir) {
+  async _clean(dir) {
 
-    return readdirAsync(dir)
-      .then(list => Promise.all(
-        list
-          .map(item => path.join(dir, item))
-          .map(path =>
-            statsAsync(path)
-              .then(stats => {
-                if (this.recursive && stats.isDirectory() && path !== '.' && path !== '..') {
-                  return this._clean(path).then(x => ({ path, list: x, folder: true })); // recursive on next dir
-                }
-                if (!stats.isDirectory() && this._shouldDelete(path, stats) === true) {
-                  return unlinkAsync(path).then(x => ({ path, deleted: true, file: true })); // delete file
-                }
-                return { path, deleted: false }
-              })
-          )
-        )
-      );
+    const list = await readdirAsync(dir);
+
+    return await Promise.all(list
+      .map(item => path.join(dir, item))
+      .map(async path => {
+        const stats = await statsAsync(path);
+
+        if (this.recursive && stats.isDirectory() && path !== '.' && path !== '..') {
+          const data = await this._clean(path).then(x => ({ path, list: x, folder: true })); // recursive on next dir
+          if (this.removeEmptyDirs && (await readdirAsync(path)).length === 0) {
+            await rmdirAsync(path);
+          }
+          return data;
+        }
+
+        if (!stats.isDirectory() && this._shouldDelete(path, stats) === true) {
+          return await unlinkAsync(path).then(x => ({ path, deleted: true, file: true })); // delete file
+        }
+
+        return { path, deleted: false }
+      })
+    );
   }
 
   /**
    * @return {PromiseLike<ExpireFSFolderChain[]> | Promise<ExpireFSFolderChain[]>}
    */
-  clean() {
-    return this
-      ._clean(this.folder)
-      .then(data => {
-        this.emit('clean', data);
-        return data;
-      });
+  async clean() {
+    const data = await this._clean(this.folder)
+    this.emit('clean', data);
+    return data;
   }
 
   /**
