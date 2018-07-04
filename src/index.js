@@ -32,7 +32,8 @@ class ExpireFS extends EventEmitter {
                 interval = 5 * 60 * 1000,
                 recursive = true,
                 autoStart = true,
-                removeEmptyDirs = true
+                removeEmptyDirs = false,
+                removeCleanedDirs = true
               }) {
     super();
 
@@ -60,6 +61,7 @@ class ExpireFS extends EventEmitter {
     this.autoStart = autoStart;
 
     this.removeEmptyDirs = removeEmptyDirs;
+    this.removeCleanedDirs = removeCleanedDirs;
 
     this._interval = null;
 
@@ -122,8 +124,21 @@ class ExpireFS extends EventEmitter {
 
         if (this.recursive && stats.isDirectory() && path !== '.' && path !== '..') {
           const data = await this._clean(path).then(x => ({ path, list: x, folder: true })); // recursive on next dir
-          if (this.removeEmptyDirs && (await readdirAsync(path)).length === 0) {
-            await rmdirAsync(path);
+
+          // if dir is empty
+          if ((await readdirAsync(path)).length === 0) {
+
+            // and if we want to delete empty dirs
+            if (this.removeEmptyDirs) {
+              // delete dir
+              await rmdirAsync(path);
+            }
+            // and if we want to delete only dirs that have been cleaned up
+            else if (this.removeCleanedDirs && data.list.length > 0) {
+              // delete dir
+              await rmdirAsync(path);
+            }
+
           }
           return data;
         }
@@ -141,7 +156,7 @@ class ExpireFS extends EventEmitter {
    * @return {PromiseLike<ExpireFSFolderChain[]> | Promise<ExpireFSFolderChain[]>}
    */
   async clean() {
-    const data = await this._clean(this.folder)
+    const data = await this._clean(this.folder);
     this.emit('clean', data);
     return data;
   }

@@ -16,6 +16,8 @@ npm i expire-fs
 - `{Number=}` interval=`300000` - time in milliseconds between searching cycles
 - `{Boolean=}` recursive=`true` - drill down recursevly in folders
 - `{Boolean=}` autoStart=`true` - auto start the timer
+- `{Boolean=}` removeEmptyDirs=`false` - remove any dir that is empty
+- `{Boolean=}` removeCleanedDirs=`true` - remove dir only if it was cleaned by expire-fs
 
 ## Methods
 
