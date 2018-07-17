@@ -180,7 +180,13 @@ class ExpireFS extends EventEmitter {
     if (this._interval) {
       return false; // already started
     }
-    this._interval = setInterval(this.clean.bind(this), this.interval);
+    this._interval = setInterval(async () => {
+      try {
+        await this.clean();
+      } catch (e) {
+        this.emit('error', e);
+      }
+    }, this.interval);
     return true;
   }
 }

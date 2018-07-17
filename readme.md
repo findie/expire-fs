@@ -35,6 +35,9 @@ Method to stop the timer. If already stopped, request is ignored.
 ### `ExpireFS#clean(ExpireFolderChain[])`
 Event fired when a clear cycle has finished
 
+### `ExpireFS#error(Error)`
+Event fired when an error occurs during a schedules clear cycle.
+
 ## JSDocs
 ```js
   /**
