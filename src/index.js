@@ -7,6 +7,17 @@ const unlinkAsync = filename => new Promise((res, rej) => fs.unlink(filename, e 
 const statsAsync = filename => new Promise((res, rej) => fs.stat(filename, (e, s) => e ? rej(e) : res(s)));
 const rmdirAsync = filename => new Promise((res, rej) => fs.rmdir(filename, e => e ? rej(e) : res()));
 
+const ignoreENOENT = async (fn, ...args) => {
+  try {
+    return await fn(...args);
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      return undefined;
+    }
+    throw e;
+  }
+};
+
 const validTimeTypes = ['atime', 'mtime', 'ctime', 'birthtime'];
 
 class ExpireFS extends EventEmitter {
@@ -120,7 +131,11 @@ class ExpireFS extends EventEmitter {
     return await Promise.all(list
       .map(item => path.join(dir, item))
       .map(async path => {
-        const stats = await statsAsync(path);
+        const stats = await ignoreENOENT(statsAsync, path);
+        if(!stats){
+          // it's been already deleted
+          return { path, deleted: false }
+        }
 
         if (this.recursive && stats.isDirectory() && path !== '.' && path !== '..') {
           const data = await this._clean(path).then(x => ({ path, list: x, folder: true })); // recursive on next dir
