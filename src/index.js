@@ -7,6 +7,11 @@ const unlinkAsync = filename => new Promise((res, rej) => fs.unlink(filename, e 
 const statsAsync = filename => new Promise((res, rej) => fs.stat(filename, (e, s) => e ? rej(e) : res(s)));
 const rmdirAsync = filename => new Promise((res, rej) => fs.rmdir(filename, e => e ? rej(e) : res()));
 
+const readdir = filename => fs.readdirSync(filename);
+const unlink = filename => fs.unlinkSync(filename);
+const stats = filename => fs.statSync(filename);
+const rmdir = filename => fs.rmdirSync(filename);
+
 const ignoreENOENT = async (fn, ...args) => {
   try {
     return await fn(...args);
@@ -44,7 +49,8 @@ class ExpireFS extends EventEmitter {
                 recursive = true,
                 autoStart = true,
                 removeEmptyDirs = false,
-                removeCleanedDirs = true
+                removeCleanedDirs = true,
+                async = true
               }) {
     super();
 
@@ -78,6 +84,17 @@ class ExpireFS extends EventEmitter {
 
     if (this.autoStart) {
       this.start();
+    }
+
+    this._readdir = readdir;
+    this._unlink = unlink;
+    this._stats = stats;
+    this._rmdir = rmdir;
+    if (async) {
+      this._readdir = readdirAsync;
+      this._unlink = unlinkAsync;
+      this._stats = statsAsync;
+      this._rmdir = rmdirAsync;
     }
   }
 
@@ -126,13 +143,13 @@ class ExpireFS extends EventEmitter {
    */
   async _clean(dir) {
 
-    const list = await readdirAsync(dir);
+    const list = await this._readdir(dir);
 
     return await Promise.all(list
       .map(item => path.join(dir, item))
       .map(async path => {
-        const stats = await ignoreENOENT(statsAsync, path);
-        if(!stats){
+        const stats = await ignoreENOENT(this._stats, path);
+        if (!stats) {
           // it's been already deleted
           return { path, deleted: false }
         }
@@ -141,17 +158,17 @@ class ExpireFS extends EventEmitter {
           const data = await this._clean(path).then(x => ({ path, list: x, folder: true })); // recursive on next dir
 
           // if dir is empty
-          if ((await readdirAsync(path)).length === 0) {
+          if ((await this._readdir(path)).length === 0) {
 
             // and if we want to delete empty dirs
             if (this.removeEmptyDirs) {
               // delete dir
-              await rmdirAsync(path);
+              await this._rmdir(path);
             }
             // and if we want to delete only dirs that have been cleaned up
             else if (this.removeCleanedDirs && data.list.length > 0) {
               // delete dir
-              await rmdirAsync(path);
+              await this._rmdir(path);
             }
 
           }
@@ -159,7 +176,8 @@ class ExpireFS extends EventEmitter {
         }
 
         if (!stats.isDirectory() && this._shouldDelete(path, stats) === true) {
-          return await unlinkAsync(path).then(x => ({ path, deleted: true, file: true })); // delete file
+          await this._unlink(path); // delete file
+          return { path, deleted: true, file: true };
         }
 
         return { path, deleted: false }
