@@ -386,12 +386,14 @@ class ExpireFS extends EventEmitter {
   /**
    * @param {ExpireEntry} entry
    * @param {boolean} dry
-   * @return {Promise<void>}
+   * @return {Promise<ExpireEntry[]>}
    * @private
    */
   async _expire({ entry, dry }) {
     const list = entry.list();
     const len = list.length;
+    const deleted = [];
+
     for (let i = 0; i < len; i++) {
       const e = list[i];
 
@@ -399,6 +401,7 @@ class ExpireFS extends EventEmitter {
       if (this.removeEmptyDirs && e.isDir && !e.hasChildren) {
         this.debug_expire('deleting empty dir', e.path);
         await e.delete({ keepEmptyParent: !this.removeCleanedDirs, dry });
+        deleted.push(e);
       }
 
       // if it's dir, continue
@@ -411,19 +414,23 @@ class ExpireFS extends EventEmitter {
       if (this._shouldDelete(e.path, e.stats)) {
         this.debug_expire('deleting file', e.path);
         await e.delete({ keepEmptyParent: !this.removeCleanedDirs, dry });
+        deleted.push(e);
       } else {
         this.debug_expire('keeping file', e.path);
       }
     }
+    return deleted;
   }
 
   /**
    * @param {ExpireEntry} entry
    * @param {boolean} dry
-   * @return {Promise<void>}
+   * @return {Promise<ExpireEntry[]>}
    * @private
    */
   async _pressure({ entry, dry }) {
+    const deleted = [];
+
     const list = entry.list();
     const disk = await this._async ?
       diskusage.check(entry.path) :
@@ -452,15 +459,23 @@ class ExpireFS extends EventEmitter {
 
       toFree -= item.size;
       await item.delete({ dry, keepEmptyParent: !this.removeCleanedDirs });
+      deleted.push(item);
       debug_pressure(`freed ${pretty_size(item.size)} | left ${pretty_size(toFree)}`);
     }
+    return deleted;
   }
 
+  /**
+   * @param {boolean=}dry
+   * @return {Promise<ExpireEntry[]>}
+   */
   async clean({ dry = this.dry } = {}) {
     const entry = await this.list();
-    await this._expire({ dry, entry });
-    await this._pressure({ dry, entry });
-    this.emit('clean');
+    const deleted = [];
+    deleted.push(...await this._expire({ dry, entry }));
+    deleted.push(...await this._pressure({ dry, entry }));
+    this.emit('clean', deleted);
+    return deleted;
   }
 
   /**
