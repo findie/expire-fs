@@ -439,7 +439,7 @@ class ExpireFS extends EventEmitter {
     const usagePerc = 1 - (disk.available / disk.total);
 
     if (usagePerc < this.pressure) {
-      return;
+      return [];
     }
 
     const shouldBe = disk.total * this.pressure;
