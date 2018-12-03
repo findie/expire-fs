@@ -1,6 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const EventEmitter = require('events');
+const diskusage = require('diskusage');
+const debug = require('debug');
+
+const debug_expire = debug('expire-fs:expire');
+const debug_pressure = debug('expire-fs:pressure');
+const debug_entry = debug('expire-fs:entry');
 
 const readdirAsync = dirname => new Promise((res, rej) => fs.readdir(dirname, (e, l) => e ? rej(e) : res(l)));
 const unlinkAsync = filename => new Promise((res, rej) => fs.unlink(filename, e => e ? rej(e) : res()));
@@ -12,18 +18,18 @@ const unlink = filename => fs.unlinkSync(filename);
 const stats = filename => fs.statSync(filename);
 const rmdir = filename => fs.rmdirSync(filename);
 
-const ignoreENOENT = async (fn, ...args) => {
-  try {
-    return await fn(...args);
-  } catch (e) {
-    if (e.code === 'ENOENT') {
-      return undefined;
-    }
-    throw e;
+const pretty_size = (size) => {
+  const names = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  while (size > 1024 && i < names.length-1) {
+    i++;
+    size /= 1024;
   }
+
+  return `${size.toFixed(2)}${names[i]}`;
 };
 
-const validTimeTypes = ['atime', 'mtime', 'ctime', 'birthtime'];
+const validTimeTypes = new Set(['atime', 'mtime', 'ctime', 'birthtime']);
 
 class ExpireEntry {
   /**
@@ -170,6 +176,8 @@ class ExpireEntry {
    * @return {Promise<void>}
    */
   async delete({ keepEmptyParent = true, dry = false } = {}) {
+    debug_entry('deleting entry', this.path);
+
     if (this.isDir) {
       await Promise.all(
         this.childrenValues.map(child => child.delete({
@@ -249,15 +257,18 @@ class ExpireEntry {
 class ExpireFS extends EventEmitter {
 
   /**
-   * @param options
-   * @param {String} options.folder
-   * @param {RegExp|function(String,Stats):Boolean=} options.filter
-   * @param {String=} [options.timeType='birthtime']
-   * @param {Number=} [options.expire=Infinity] - milliseconds
-   * @param {Number=} [options.interval=300000] - milliseconds
-   * @param {Boolean=} [options.autoStart=true]
-   * @param {Boolean=} [options.unsafe=false]
-   * @param {Boolean=} [options.removeEmptyDirs=false]
+   * @param {String} folder
+   * @param {RegExp|function(String,Stats):Boolean=} filter
+   * @param {String=} [timeType='birthtime']
+   * @param {Number=} [expire=Infinity] - milliseconds
+   * @param {Number=} [pressure=1] - percentage of disk usage
+   * @param {Number=} [interval=300000] - milliseconds
+   * @param {Boolean=} [autoStart=true]
+   * @param {Boolean=} [unsafe=false]
+   * @param {Boolean=} [removeEmptyDirs=false]
+   * @param {Boolean=} [removeCleanedDirs=true]
+   * @param {Boolean=} [async=false]
+   * @param {Boolean=} [dry=false] - dry run
    */
   constructor({
                 folder,
@@ -265,6 +276,7 @@ class ExpireFS extends EventEmitter {
                 timeType = 'birthtime',
                 filter = /.*/,
                 expire = Infinity,
+                pressure = 1,
                 interval = 5 * 60 * 1000,
                 autoStart = true,
                 removeEmptyDirs = false,
@@ -286,15 +298,17 @@ class ExpireFS extends EventEmitter {
     }
 
     this.timeType = timeType;
-    if (!~validTimeTypes.indexOf(this.timeType)) {
-      throw new Error('timeType should be one of ' + validTimeTypes.join(', '));
+    if (!validTimeTypes.has(this.timeType)) {
+      throw new Error('timeType should be one of ' + [...validTimeTypes].join(', '));
     }
 
     this.filter = filter;
     this.expire = expire;
-
+    this.pressure = pressure;
     this.interval = interval;
     this.autoStart = autoStart;
+    this.debug_expire = debug_expire;
+    this.debug_pressure = debug_pressure;
 
     this.removeEmptyDirs = removeEmptyDirs;
     this.removeCleanedDirs = removeCleanedDirs;
@@ -306,16 +320,6 @@ class ExpireFS extends EventEmitter {
       this.start();
     }
 
-    this._readdir = readdir;
-    this._unlink = unlink;
-    this._stats = stats;
-    this._rmdir = rmdir;
-    if (async) {
-      this._readdir = readdirAsync;
-      this._unlink = unlinkAsync;
-      this._stats = statsAsync;
-      this._rmdir = rmdirAsync;
-    }
     this._async = async;
   }
 
@@ -356,9 +360,13 @@ class ExpireFS extends EventEmitter {
     return true;
   }
 
-
-  async clean({ dry = this.dry } = {}) {
-    const entry = await this.list();
+  /**
+   * @param {ExpireEntry} entry
+   * @param {boolean} dry
+   * @return {Promise<void>}
+   * @private
+   */
+  async _expire({ entry, dry }) {
     const list = entry.list();
     const len = list.length;
     for (let i = 0; i < len; i++) {
@@ -366,19 +374,69 @@ class ExpireFS extends EventEmitter {
 
       // remove empty dirs
       if (this.removeEmptyDirs && e.isDir && !e.hasChildren) {
+        this.debug_expire('deleting empty dir', e.path);
         await e.delete({ keepEmptyParent: !this.removeCleanedDirs, dry });
       }
 
       // if it's dir, continue
       if (e.isDir) {
+        this.debug_expire('skipping dir', e.path);
         continue;
       }
 
       // remove file is necessary
       if (this._shouldDelete(e.path, e.stats)) {
+        this.debug_expire('deleting file', e.path);
         await e.delete({ keepEmptyParent: !this.removeCleanedDirs, dry });
+      } else {
+        this.debug_expire('keeping file', e.path);
       }
     }
+  }
+
+  /**
+   * @param {ExpireEntry} entry
+   * @param {boolean} dry
+   * @return {Promise<void>}
+   * @private
+   */
+  async _pressure({ entry, dry }) {
+    const list = entry.list();
+    const disk = await this._async ?
+      diskusage.check(entry.path) :
+      diskusage.checkSync(entry.path);
+
+    const usagePerc = 1 - (disk.available / disk.total);
+
+    if (usagePerc < this.pressure) {
+      return;
+    }
+
+    const shouldBe = disk.total * this.pressure;
+    let toFree = shouldBe - disk.available;
+
+    debug_pressure(`disk usage is ${(usagePerc * 100).toFixed(2)}%`);
+    debug_pressure(`need to free ${pretty_size(toFree)}`);
+
+    // newest to oldest
+    list.sort((a, b) => b.getTime(this.timeType) - a.getTime(this.timeType));
+
+    while (list.length && toFree > 0) {
+      const item = list.pop();
+      if (item.isDir) {
+        continue;
+      }
+
+      toFree -= item.size;
+      await item.delete({ dry, keepEmptyParent: !this.removeCleanedDirs });
+      debug_pressure(`freed ${pretty_size(item.size)} | left ${pretty_size(toFree)}`);
+    }
+  }
+
+  async clean({ dry = this.dry } = {}) {
+    const entry = await this.list();
+    await this._expire({ dry, entry });
+    await this._pressure({ dry, entry });
     this.emit('clean');
   }
 
