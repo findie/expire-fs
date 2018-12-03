@@ -21,7 +21,7 @@ const rmdir = filename => fs.rmdirSync(filename);
 const pretty_size = (size) => {
   const names = ['B', 'KB', 'MB', 'GB'];
   let i = 0;
-  while (size > 1024 && i < names.length-1) {
+  while (size > 1024 && i < names.length - 1) {
     i++;
     size /= 1024;
   }
@@ -142,13 +142,25 @@ class ExpireEntry {
    * @return {Promise<void>}
    */
   async populate() {
-    this._stats = await this._get_stats(this._path);
+    try {
+      this._stats = await this._get_stats(this._path);
+    } catch (e) {
+      console.warn(`error reading stats for ${this._path}: ${e.message || e}`);
+      return;
+    }
 
     if (!this.isDir) {
       return;
     }
 
-    const list = await this._get_list(this._path);
+    let list = [];
+    try {
+      list = await this._get_list(this._path);
+    } catch (e) {
+      console.warn(`error reading dir listing for ${this._path}: ${e.message || e}`);
+      return;
+    }
+
     const len = list.length;
 
     const entries = [];
@@ -185,14 +197,25 @@ class ExpireEntry {
           dry
         })));
       if (!keepEmptyParent) {
-        await dry ?
-          console.log('del dir  ', this._path) :
-          this._rm_dir(this._path);
+
+        try {
+          await dry ?
+            console.log('del dir  ', this._path) :
+            this._rm_dir(this._path);
+        } catch (e) {
+          console.warn(`error deleting dir ${this._path}: ${e.message || e}`);
+          return;
+        }
       }
     } else {
-      await dry ?
-        console.log('del file ', this.path) :
-        this._rm_file(this._path);
+      try {
+        await dry ?
+          console.log('del file ', this.path) :
+          this._rm_file(this._path);
+      } catch (e) {
+        console.warn(`error deleting file ${this._path}: ${e.message || e}`);
+        return;
+      }
     }
 
     if (this.parent) {
