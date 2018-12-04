@@ -449,7 +449,7 @@ class ExpireFS extends EventEmitter {
     }
 
     const shouldBe = disk.total * this.pressure;
-    let toFree = shouldBe - disk.available;
+    let toFree = (disk.total - disk.available) - shouldBe;
 
     debug_pressure(`disk usage is ${(usagePerc * 100).toFixed(2)}%`);
     debug_pressure(`need to free ${pretty_size(toFree)}`);
