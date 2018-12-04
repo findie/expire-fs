@@ -199,9 +199,11 @@ class ExpireEntry {
       if (!keepEmptyParent) {
 
         try {
-          await dry ?
-            console.log('del dir  ', this._path) :
-            this._rm_dir(this._path);
+          await (
+            dry ?
+              console.log('del dir  ', this._path) :
+              this._rm_dir(this._path)
+          );
         } catch (e) {
           console.warn(`error deleting dir ${this._path}: ${e.message || e}`);
           return;
@@ -209,9 +211,11 @@ class ExpireEntry {
       }
     } else {
       try {
-        await dry ?
-          console.log('del file ', this.path) :
-          this._rm_file(this._path);
+        await (
+          dry ?
+            console.log('del file ', this.path) :
+            this._rm_file(this._path)
+        );
       } catch (e) {
         console.warn(`error deleting file ${this._path}: ${e.message || e}`);
         return;
@@ -432,9 +436,11 @@ class ExpireFS extends EventEmitter {
     const deleted = [];
 
     const list = entry.list();
-    const disk = await this._async ?
-      diskusage.check(entry.path) :
-      diskusage.checkSync(entry.path);
+    const disk = await (
+      this._async ?
+        diskusage.check(entry.path) :
+        diskusage.checkSync(entry.path)
+    );
 
     const usagePerc = 1 - (disk.available / disk.total);
 
