@@ -85,6 +85,13 @@ class ExpireEntry {
   }
 
   /**
+   * @return {boolean}
+   */
+  get isRoot() {
+    return !this._parent;
+  }
+
+  /**
    * @param {ExpireFS.TimeType} type
    * @return {number}
    */
@@ -185,9 +192,10 @@ class ExpireEntry {
   /**
    * @param {boolean=} keepEmptyParent
    * @param {boolean=} dry
+   * @param {removeRoot=} dry
    * @return {Promise<void>}
    */
-  async delete({ keepEmptyParent = true, dry = false } = {}) {
+  async delete({ keepEmptyParent = true, dry = false, removeRoot = false } = {}) {
     debug_entry('deleting entry', this.path);
 
     if (this.isDir) {
@@ -196,7 +204,15 @@ class ExpireEntry {
           keepEmptyParent: true,
           dry
         })));
-      if (!keepEmptyParent) {
+
+      // check only remove if not root, or root and removeRoot===true
+      if (
+        !keepEmptyParent &&
+        (
+          !this.isRoot ||
+          (this.isRoot && removeRoot)
+        )
+      ) {
 
         try {
           await (
@@ -294,6 +310,7 @@ class ExpireFS extends EventEmitter {
    * @param {Boolean=} [unsafe=false]
    * @param {Boolean=} [removeEmptyDirs=false]
    * @param {Boolean=} [removeCleanedDirs=true]
+   * @param {Boolean=} [removeRoot=false]
    * @param {Boolean=} [async=false]
    * @param {Boolean=} [dry=false] - dry run
    */
@@ -308,8 +325,9 @@ class ExpireFS extends EventEmitter {
                 autoStart = true,
                 removeEmptyDirs = false,
                 removeCleanedDirs = true,
+                removeRoot = false,
                 async = true,
-                dry = true
+                dry = true,
               }) {
     super();
 
@@ -339,6 +357,8 @@ class ExpireFS extends EventEmitter {
 
     this.removeEmptyDirs = removeEmptyDirs;
     this.removeCleanedDirs = removeCleanedDirs;
+    this.removeRoot = removeRoot;
+
     this.dry = dry;
 
     this._interval = null;
@@ -404,7 +424,11 @@ class ExpireFS extends EventEmitter {
       // remove empty dirs
       if (this.removeEmptyDirs && e.isDir && !e.hasChildren) {
         this.debug_expire('deleting empty dir', e.path);
-        await e.delete({ keepEmptyParent: !this.removeCleanedDirs, dry });
+        await e.delete({
+          keepEmptyParent: !this.removeCleanedDirs,
+          dry,
+          removeRoot: this.removeRoot
+        });
         deleted.push(e);
       }
 
@@ -417,7 +441,11 @@ class ExpireFS extends EventEmitter {
       // remove file is necessary
       if (this._shouldDelete(e.path, e.stats)) {
         this.debug_expire('deleting file', e.path);
-        await e.delete({ keepEmptyParent: !this.removeCleanedDirs, dry });
+        await e.delete({
+          keepEmptyParent: !this.removeCleanedDirs,
+          dry,
+          removeRoot: this.removeRoot
+        });
         deleted.push(e);
       } else {
         this.debug_expire('keeping file', e.path);
