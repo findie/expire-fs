@@ -52,15 +52,6 @@ class ExpireEntry {
      * @private
      */
     this._children = new Map;
-
-    /** @type function */
-    this._get_list = async ? readdirAsync : readdir;
-    /** @type function */
-    this._get_stats = async ? statsAsync : stats;
-    /** @type function */
-    this._rm_dir = async ? rmdirAsync : rmdir;
-    /** @type function */
-    this._rm_file = async ? unlinkAsync : unlink;
   }
 
   /**
@@ -146,11 +137,11 @@ class ExpireEntry {
   }
 
   /**
-   * @return {Promise<void>}
+   * @return {void}
    */
-  async populate() {
+  populate() {
     try {
-      this._stats = await this._get_stats(this._path);
+      this._stats = stats(this._path);
     } catch (e) {
       console.warn(`error reading stats for ${this._path}: ${e.message || e}`);
       return;
@@ -162,7 +153,7 @@ class ExpireEntry {
 
     let list = [];
     try {
-      list = await this._get_list(this._path);
+      list = readdir(this._path);
     } catch (e) {
       console.warn(`error reading dir listing for ${this._path}: ${e.message || e}`);
       return;
@@ -186,7 +177,51 @@ class ExpireEntry {
       this.children.set(entry.basename, entry);
     }
 
-    await Promise.all(entries.map(e => e.populate()));
+    entries.map(e => e.populate());
+  }
+
+  /**
+   * @return {Promise<void>}
+   */
+  async populateAsync() {
+    try {
+      this._stats = await statsAsync(this._path);
+    } catch (e) {
+      console.warn(`error reading stats for ${this._path}: ${e.message || e}`);
+      return;
+    }
+
+    if (!this.isDir) {
+      return;
+    }
+
+    let list = [];
+    try {
+      list = await readdirAsync(this._path);
+    } catch (e) {
+      console.warn(`error reading dir listing for ${this._path}: ${e.message || e}`);
+      return;
+    }
+
+    const len = list.length;
+
+    const entries = [];
+    for (let i = 0; i < len; i++) {
+      const name = list[i];
+      if (name === '..' || name === '.') {
+        continue;
+      }
+
+      const entry = new ExpireEntry({
+        async: this._async,
+        path: path.join(this.path, name),
+        parent: this
+      });
+      entries.push(entry);
+      this.children.set(entry.basename, entry);
+    }
+
+    await Promise.all(entries.map(e => e.populateAsync()));
   }
 
   /**
@@ -195,12 +230,12 @@ class ExpireEntry {
    * @param {removeRoot=} dry
    * @return {Promise<void>}
    */
-  async delete({ keepEmptyParent = true, dry = false, removeRoot = false } = {}) {
+  async deleteAsync({ keepEmptyParent = true, dry = false, removeRoot = false } = {}) {
     debug_entry('deleting entry', this.path);
 
     if (this.isDir) {
       await Promise.all(
-        this.childrenValues.map(child => child.delete({
+        this.childrenValues.map(child => child.deleteAsync({
           keepEmptyParent: true,
           dry
         })));
@@ -218,7 +253,7 @@ class ExpireEntry {
           await (
             dry ?
               console.log('del dir  ', this._path) :
-              this._rm_dir(this._path)
+              rmdirAsync(this._path)
           );
         } catch (e) {
           console.warn(`error deleting dir ${this._path}: ${e.message || e}`);
@@ -230,7 +265,7 @@ class ExpireEntry {
         await (
           dry ?
             console.log('del file ', this.path) :
-            this._rm_file(this._path)
+            unlinkAsync(this._path)
         );
       } catch (e) {
         console.warn(`error deleting file ${this._path}: ${e.message || e}`);
@@ -242,7 +277,61 @@ class ExpireEntry {
       this.parent.children.delete(this.basename);
 
       if (!keepEmptyParent && this.parent.children.size === 0) {
-        await this.parent.delete({ keepEmptyParent, dry });
+        await this.parent.deleteAsync({ keepEmptyParent, dry });
+      }
+    }
+  }
+
+  /**
+   * @param {boolean=} keepEmptyParent
+   * @param {boolean=} dry
+   * @param {removeRoot=} dry
+   * @return {void}
+   */
+  delete({ keepEmptyParent = true, dry = false, removeRoot = false } = {}) {
+    debug_entry('deleting entry', this.path);
+
+    if (this.isDir) {
+
+      this.childrenValues.map(child => child.delete({
+        keepEmptyParent: true,
+        dry
+      }));
+
+      // check only remove if not root, or root and removeRoot===true
+      if (
+        !keepEmptyParent &&
+        (
+          !this.isRoot ||
+          (this.isRoot && removeRoot)
+        )
+      ) {
+
+        try {
+          dry ?
+            console.log('del dir  ', this._path) :
+            rmdir(this._path);
+        } catch (e) {
+          console.warn(`error deleting dir ${this._path}: ${e.message || e}`);
+          return;
+        }
+      }
+    } else {
+      try {
+        dry ?
+          console.log('del file ', this.path) :
+          unlink(this._path)
+      } catch (e) {
+        console.warn(`error deleting file ${this._path}: ${e.message || e}`);
+        return;
+      }
+    }
+
+    if (this.parent) {
+      this.parent.children.delete(this.basename);
+
+      if (!keepEmptyParent && this.parent.children.size === 0) {
+        this.parent.delete({ keepEmptyParent, dry });
       }
     }
   }
