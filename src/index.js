@@ -305,6 +305,7 @@ class ExpireFS extends EventEmitter {
    * @param {String=} [timeType='birthtime']
    * @param {Number=} [expire=Infinity] - milliseconds
    * @param {Number=} [pressure=1] - percentage of disk usage
+   * @param {Number=} [minimumAge=0] - milliseconds | don't delete files if they are younger than value
    * @param {Number=} [interval=300000] - milliseconds
    * @param {Boolean=} [autoStart=true]
    * @param {Boolean=} [unsafe=false]
@@ -321,6 +322,7 @@ class ExpireFS extends EventEmitter {
                 filter = /.*/,
                 expire = Infinity,
                 pressure = 1,
+                minimumAge = 0,
                 interval = 5 * 60 * 1000,
                 autoStart = true,
                 removeEmptyDirs = false,
@@ -350,6 +352,7 @@ class ExpireFS extends EventEmitter {
     this.filter = filter;
     this.expire = expire;
     this.pressure = pressure;
+    this.minimumAge = minimumAge;
     this.interval = interval;
     this.autoStart = autoStart;
     this.debug_expire = debug_expire;
@@ -488,6 +491,11 @@ class ExpireFS extends EventEmitter {
     while (list.length && toFree > 0) {
       const item = list.pop();
       if (item.isDir) {
+        continue;
+      }
+
+      const age = Date.now() - item.stats[this.timeType].getTime();
+      if (age < this.minimumAge) {
         continue;
       }
 
