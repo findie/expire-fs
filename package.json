@@ -1,8 +1,9 @@
 {
   "name": "expire-fs",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "",
   "main": "lib/index.js",
+  "types": "index.d.ts",
   "scripts": {
     "build": "babel src -d lib --source-maps",
     "watch": "npm run build -- --watch"
@@ -14,6 +15,7 @@
     "url": "git@github.com:findie/expire-fs.git"
   },
   "devDependencies": {
+    "@types/node": "^12.7.1",
     "babel-cli": "^6.26.0",
     "babel-preset-env": "^1.7.0"
   },
