@@ -1,6 +1,6 @@
 {
   "name": "expire-fs",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "",
   "main": "lib/index.js",
   "types": "index.d.ts",
